@@ -37,11 +37,12 @@ if not os.path.isdir(dest):
 
 #copy database, we don't want to mess with original
 tempDir=tempfile.mkdtemp()
-shutil.copyfile(os.path.join(lib_root, 'Database/Library.apdb'), os.path.join(tempDir, 'Library.apdb'))
-
+databasePath=os.path.join(tempDir, 'Library.apdb')
+databasePath2=(databasePath,)
+shutil.copyfile(os.path.join(lib_root, 'Database/Library.apdb'), databasePath)
 #connect to database
-main_db=sqlite3.connect('./Library.apdb')
-main_db.execute("attach database \"./Library.apdb\" as L")
+main_db=sqlite3.connect(databasePath)
+main_db.execute("attach database ? as L", databasePath2)
 
 #cannot use one connection to do everything
 connection1=main_db.cursor()
@@ -80,4 +81,4 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
 print "Images:\t"+str(images)+"\tcopied:\t"+str(copied)
 #clean up
 main_db.close()
-shuitl.rmtree(tempDir)
+shutil.rmtree(tempDir)
