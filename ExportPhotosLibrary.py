@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- Mode: Python -*-
+# -*- coding: utf-8 -*-
 
 #Based on:
 #   https://github.com/samrushing/face_extractor
@@ -12,9 +12,26 @@ import sys
 import shutil
 import errno
 import tempfile
+import argparse
+import signal
+import filecmp
 
 reload(sys)
 sys.setdefaultencoding('utf8')
+
+
+def bar(progress):
+    i = progress/5
+    sys.stdout.write('\r')
+    sys.stdout.write("[%-20s] %d%%" % ('='*i, progress))
+    sys.stdout.write('\r')
+    sys.stdout.flush()
+
+
+def clean_up():
+    main_db.close()
+    shutil.rmtree(tempDir)
+    print "\nDeleted temporary files"
 
 
 def make_sure_path_exists(path):
@@ -24,14 +41,30 @@ def make_sure_path_exists(path):
         if exception.errno != errno.EEXIST:
             raise
 
-if len(sys.argv) < 3:
-    sys.stderr.write('Usage: %s <Root> <DestinationDirectory>\n' % (sys.argv[0],))
-    sys.exit(-1)
 
-lib_root = sys.argv[1]
-dest = sys.argv[2]
+def signal_handler(signal, frame):
+        clean_up()
+        sys.exit(0)
 
-if not os.path.isdir(dest):
+signal.signal(signal.SIGINT, signal_handler)
+
+parser = argparse.ArgumentParser(description='Exports Photos Library to directory', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photoslibrary", help='source, path to Photos.app library')
+parser.add_argument('-d', '--destination', default="/Volumes/photo", help='destination, path to external directory')
+parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
+parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
+group = parser.add_mutually_exclusive_group()
+group.add_argument('-p', '--progress', help="show progress bar", default=True, action="store_true")
+group.add_argument('-v', '--verbose', help="increase output verbosity", action="store_true")
+args = parser.parse_args()
+
+if args.verbose:
+    args.progress = False
+
+libraryRoot = args.source
+destinationRoot = args.destination
+
+if not os.path.isdir(destinationRoot):
     sys.stderr.write('destination is not a directory?\n')
     sys.exit(-1)
 
@@ -39,22 +72,36 @@ if not os.path.isdir(dest):
 tempDir = tempfile.mkdtemp()
 databasePath = os.path.join(tempDir, 'Library.apdb')
 databasePath2 = (databasePath,)
-shutil.copyfile(os.path.join(lib_root, 'Database/Library.apdb'), databasePath)
+shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePath)
 #connect to database
 main_db = sqlite3.connect(databasePath)
 main_db.execute("attach database ? as L", databasePath2)
 
 #cannot use one connection to do everything
 connection1 = main_db.cursor()
-
 images = 0
+
+#count all images
+for row in connection1.execute("select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3"):
+    albumNumber = (row[0],)
+    connection2 = main_db.cursor()
+    #get all photos in that album
+    for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
+        versionId = (row2[0],)
+        images += 1
+
+print "Found "+str(images)+" images"
+
 copied = 0
+progress = 0
 
 #find all "normal" albums
+connection1 = main_db.cursor()
 for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
     albumNumber = (row[0],)
     albumName = row[1]
-    print "-------"+albumName+"-------"
+    if args.verbose:
+        print albumName+":"
     connection2 = main_db.cursor()
     #get all photos in that album
     for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
@@ -62,21 +109,36 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
         connection3 = main_db.cursor()
         #get image path/name
         for row in connection3.execute("select M.imagePath, V.fileName from L.RKVersion as V inner join L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
-            images += 1
+            progress += 1
+            if args.progress:
+                bar(progress*100/images)
             imagePath = row[0]
             fileName = row[1]
-            source = os.path.join(lib_root, "Masters", imagePath)
-            destination = os.path.join(dest, albumName)
-            print "From:\t"+source+"\tto:\t"+destination
-            make_sure_path_exists(destination)
-            if not os.path.isfile(destination):
+            sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
+            destinationDirectory = os.path.join(destinationRoot, albumName)
+            checkPath = os.path.join(destinationDirectory, fileName)
+            if args.verbose:
+                print "("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+checkPath
+            make_sure_path_exists(destinationDirectory)
+            if not os.path.isfile(checkPath):
                 copied += 1
-                print "Copying"
-                shutil.copy(source, destination)
+                if args.verbose:
+                    print "Copying"
+                if not args.dryrun:
+                    shutil.copy(sourceImage, destinationDirectory)
             else:
-                print "File already exists"
+                if args.verbose:
+                    print "File already exists"
+                    if args.compare:
+                        if args.verbose:
+                            print "Comparing files"
+                        if not filecmp.cmp(sourceImage, checkPath):
+                            copied += 1
+                            if not args.dryrun:
+                                if args.verbose:
+                                    print "Copying"
+                                shutil.copy(sourceImage, destinationDirectory)
 
 print "Images:\t"+str(images)+"\tcopied:\t"+str(copied)
-#clean up
-main_db.close()
-shutil.rmtree(tempDir)
+
+clean_up()
