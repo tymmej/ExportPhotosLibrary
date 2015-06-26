@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # -*- Mode: Python -*-
 
-# Aperture Face Extractor.
-# got some great tips on the Aperture Database Layout from here:
-#   http://code.google.com/p/extract-aperture-faces/
+#Based on:
+#   https://github.com/samrushing/face_extractor
+#   https://github.com/bdwilson/iPhotoDump
+
 
 import sqlite3
 import os
