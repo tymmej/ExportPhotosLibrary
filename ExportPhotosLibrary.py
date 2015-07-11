@@ -60,6 +60,8 @@ args = parser.parse_args()
 
 if args.verbose:
     args.progress = False
+if args.progress:
+    args.verbose = False
 
 libraryRoot = args.source
 destinationRoot = args.destination
@@ -139,6 +141,6 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                                     print "Copying"
                                 shutil.copy(sourceImage, destinationDirectory)
 
-print "Images:\t"+str(images)+"\tcopied:\t"+str(copied)
+print "\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)
 
 clean_up()
