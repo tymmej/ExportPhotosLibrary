@@ -96,6 +96,7 @@ print "Found "+str(images)+" images"
 
 copied = 0
 progress = 0
+failed = 0
 
 #find all "normal" albums
 connection1 = main_db.cursor()
@@ -127,7 +128,11 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                 if args.verbose:
                     print "Copying"
                 if not args.dryrun:
-                    shutil.copy(sourceImage, destinationDirectory)
+                    try:
+                        shutil.copy(sourceImage, destinationDirectory)
+                    except IOError:
+                        failed += 1
+                        print "Failed to copy: %s. Skipping this element." % sourceImage
             else:
                 if args.verbose:
                     print "File already exists"
@@ -139,8 +144,12 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                             if not args.dryrun:
                                 if args.verbose:
                                     print "Copying"
-                                shutil.copy(sourceImage, destinationDirectory)
+                                try:
+                                    shutil.copy(sourceImage, destinationDirectory)
+                                except IOError:
+                                    failed += 1
+                                    print "Failed to copy: %s. Skipping this element." % sourceImage
 
-print "\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)
+print "\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)+"\tfailed:\t"+str(failed)
 
 clean_up()
