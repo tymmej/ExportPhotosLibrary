@@ -53,9 +53,12 @@ parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photo
 parser.add_argument('-d', '--destination', default="/Volumes/photo", help='destination, path to external directory')
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
-group = parser.add_mutually_exclusive_group()
-group.add_argument('-p', '--progress', help="show progress bar", default=True, action="store_true")
-group.add_argument('-v', '--verbose', help="increase output verbosity", action="store_true")
+group1 = parser.add_mutually_exclusive_group()
+group1.add_argument('-l', '--links', default=False, help='use symlinks', action="store_true")
+group1.add_argument('-i', '--hardlinks', default=False, help='use hardlinks', action="store_true")
+group2 = parser.add_mutually_exclusive_group()
+group2.add_argument('-p', '--progress', help="show progress bar", default=True, action="store_true")
+group2.add_argument('-v', '--verbose', help="increase output verbosity", action="store_true")
 args = parser.parse_args()
 
 if args.verbose:
@@ -129,7 +132,12 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                     print "Copying"
                 if not args.dryrun:
                     try:
-                        shutil.copy(sourceImage, destinationDirectory)
+                        if args.links:
+                            os.symlink(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                        elif args.hardlinks:
+                            os.link(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                        else:
+                            shutil.copy(sourceImage, destinationDirectory)
                     except IOError:
                         failed += 1
                         print "Failed to copy: %s. Skipping this element." % sourceImage
@@ -145,7 +153,12 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                                 if args.verbose:
                                     print "Copying"
                                 try:
-                                    shutil.copy(sourceImage, destinationDirectory)
+                                    if args.links:
+                                        os.symlink(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                                    elif args.hardlinks:
+                                        os.link(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                                    else:
+                                        shutil.copy(sourceImage, destinationDirectory)
                                 except IOError:
                                     failed += 1
                                     print "Failed to copy: %s. Skipping this element." % sourceImage
