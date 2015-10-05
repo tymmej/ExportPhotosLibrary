@@ -4,7 +4,7 @@
 #Based on:
 #   https://github.com/samrushing/face_extractor
 #   https://github.com/bdwilson/iPhotoDump
-
+#   https://github.com/namezys/mac_photos
 
 import sqlite3
 import os
@@ -53,6 +53,7 @@ parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photo
 parser.add_argument('-d', '--destination', default="/Volumes/photo", help='destination, path to external directory')
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
+parser.add_argument('-m', '--masters', default=False, help='export masters instead of edited', action="store_true")
 group1 = parser.add_mutually_exclusive_group()
 group1.add_argument('-l', '--links', default=False, help='use symlinks', action="store_true")
 group1.add_argument('-i', '--hardlinks', default=False, help='use hardlinks', action="store_true")
@@ -75,15 +76,21 @@ if not os.path.isdir(destinationRoot):
 
 #copy database, we don't want to mess with original
 tempDir = tempfile.mkdtemp()
-databasePath = os.path.join(tempDir, 'Library.apdb')
-databasePath2 = (databasePath,)
-shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePath)
+databasePath1 = os.path.join(tempDir, 'Library.apdb')
+databasePath2 = (databasePath1,)
+databasePath3 = os.path.join(tempDir, 'ImageProxies.apdb')
+databasePath4 = (databasePath3,)
+shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePath1)
+shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePath3)
 #connect to database
-main_db = sqlite3.connect(databasePath)
+main_db = sqlite3.connect(databasePath1)
 main_db.execute("attach database ? as L", databasePath2)
+proxies_db = sqlite3.connect(databasePath3)
+proxies_db.execute("attach database ? as L", databasePath4)
 
 #cannot use one connection to do everything
 connection1 = main_db.cursor()
+connection4 = proxies_db.cursor()
 images = 0
 
 #count all images
@@ -114,13 +121,21 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
         versionId = (row2[0],)
         connection3 = main_db.cursor()
         #get image path/name
-        for row in connection3.execute("select M.imagePath, V.fileName from L.RKVersion as V inner join L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
+        for row in connection3.execute("select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
             progress += 1
             if args.progress:
                 bar(progress*100/images)
             imagePath = row[0]
             fileName = row[1]
+            adjustmentUUID = row[2]
             sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
+            if not args.masters:
+                if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
+                    connection4.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?", [adjustmentUUID])
+                    uuid, filename = connection4.fetchone()
+                    p1 = str(ord(uuid[0]))
+                    p2 = str(ord(uuid[1]))
+                    sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, filename)
             destinationDirectory = os.path.join(destinationRoot, albumName)
             checkPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
