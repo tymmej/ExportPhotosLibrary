@@ -132,10 +132,10 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
                     connection4.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?", [adjustmentUUID])
-                    uuid, filename = connection4.fetchone()
+                    uuid, fileName = connection4.fetchone()
                     p1 = str(ord(uuid[0]))
                     p2 = str(ord(uuid[1]))
-                    sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, filename)
+                    sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
             destinationDirectory = os.path.join(destinationRoot, albumName)
             checkPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
