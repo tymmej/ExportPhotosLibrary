@@ -20,6 +20,8 @@ if sys.version[0] == '2':
     reload(sys)
     sys.setdefaultencoding('utf8')
 
+
+#shows progress bar
 def bar(progress):
     i = int(progress/5)
     sys.stdout.write('\r')
@@ -27,13 +29,13 @@ def bar(progress):
     sys.stdout.write('\r')
     sys.stdout.flush()
 
-
+#closes database and removes temp files
 def clean_up():
     main_db.close()
     shutil.rmtree(tempDir)
     print("\nDeleted temporary files")
 
-
+#create dir if not exists
 def make_sure_path_exists(path):
     try:
         os.makedirs(path)
@@ -41,13 +43,14 @@ def make_sure_path_exists(path):
         if exception.errno != errno.EEXIST:
             raise
 
-
 def signal_handler(signal, frame):
         clean_up()
         sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 
+
+#options
 parser = argparse.ArgumentParser(description='Exports Photos Library to directory', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photoslibrary", help='source, path to Photos.app library')
 parser.add_argument('-d', '--destination', default="/Volumes/photo", help='destination, path to external directory')
@@ -76,25 +79,25 @@ if not os.path.isdir(destinationRoot):
 
 #copy database, we don't want to mess with original
 tempDir = tempfile.mkdtemp()
-databasePath1 = os.path.join(tempDir, 'Library.apdb')
-databasePath2 = (databasePath1,)
-databasePath3 = os.path.join(tempDir, 'ImageProxies.apdb')
-databasePath4 = (databasePath3,)
-shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePath1)
-shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePath3)
+databasePathLibrary = os.path.join(tempDir, 'Library.apdb')
+databasePathEdited = os.path.join(tempDir, 'ImageProxies.apdb')
+shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePathLibrary)
+shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePathEdited)
+
 #connect to database
-main_db = sqlite3.connect(databasePath1)
-main_db.execute("attach database ? as L", databasePath2)
-proxies_db = sqlite3.connect(databasePath3)
-proxies_db.execute("attach database ? as L", databasePath4)
+main_db = sqlite3.connect(databasePathLibrary)
+main_db.execute("attach database ? as L", (databasePathLibrary,))
+proxies_db = sqlite3.connect(databasePathEdited)
+proxies_db.execute("attach database ? as L", (databasePathEdited,))
 
 #cannot use one connection to do everything
-connection1 = main_db.cursor()
-connection4 = proxies_db.cursor()
+connectionLibrary = main_db.cursor()
+connectionEdited = proxies_db.cursor()
+
 images = 0
 
 #count all images
-for row in connection1.execute("select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3"):
+for row in connectionLibrary.execute("select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3"):
     albumNumber = (row[0],)
     connection2 = main_db.cursor()
     #get all photos in that album
@@ -109,12 +112,13 @@ progress = 0
 failed = 0
 
 #find all "normal" albums
-connection1 = main_db.cursor()
-for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
+connectionLibrary = main_db.cursor()
+for row in connectionLibrary.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
     albumNumber = (row[0],)
     albumName = row[1]
-    if args.verbose:
-        print(albumName+":")
+    destinationDirectory = os.path.join(destinationRoot, albumName)
+    make_sure_path_exists(destinationDirectory)
+    if args.verbose: print(albumName+":")
     connection2 = main_db.cursor()
     #get all photos in that album
     for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
@@ -123,25 +127,23 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
         #get image path/name
         for row in connection3.execute("select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
             progress += 1
-            if args.progress:
-                bar(progress*100/images)
+            if args.progress: bar(progress*100/images)
             imagePath = row[0]
             fileName = row[1]
             adjustmentUUID = row[2]
             sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
+            #copy edited image to destination
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
-                    connection4.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?", [adjustmentUUID])
-                    uuid, fileName = connection4.fetchone()
+                    connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?", [adjustmentUUID])
+                    uuid, fileName = connectionEdited.fetchone()
                     p1 = str(ord(uuid[0]))
                     p2 = str(ord(uuid[1]))
                     sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
-            destinationDirectory = os.path.join(destinationRoot, albumName)
-            checkPath = os.path.join(destinationDirectory, fileName)
+            destinationPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
-                print("("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+checkPath)
-            make_sure_path_exists(destinationDirectory)
-            if not os.path.isfile(checkPath):
+                print("\t("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+destinationPath)
+            if not os.path.isfile(destinationPath):
                 copied += 1
                 if args.verbose:
                     print("Copying")
