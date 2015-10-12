@@ -16,12 +16,12 @@ import argparse
 import signal
 import filecmp
 
-reload(sys)
-sys.setdefaultencoding('utf8')
-
+if sys.version[0] == '2':
+    reload(sys)
+    sys.setdefaultencoding('utf8')
 
 def bar(progress):
-    i = progress/5
+    i = int(progress/5)
     sys.stdout.write('\r')
     sys.stdout.write("[%-20s] %d%%" % ('='*i, progress))
     sys.stdout.write('\r')
@@ -31,7 +31,7 @@ def bar(progress):
 def clean_up():
     main_db.close()
     shutil.rmtree(tempDir)
-    print "\nDeleted temporary files"
+    print("\nDeleted temporary files")
 
 
 def make_sure_path_exists(path):
@@ -102,7 +102,7 @@ for row in connection1.execute("select RKAlbum.modelid from L.RKAlbum where RKAl
         versionId = (row2[0],)
         images += 1
 
-print "Found "+str(images)+" images"
+print("Found "+str(images)+" images")
 
 copied = 0
 progress = 0
@@ -114,7 +114,7 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
     albumNumber = (row[0],)
     albumName = row[1]
     if args.verbose:
-        print albumName+":"
+        print(albumName+":")
     connection2 = main_db.cursor()
     #get all photos in that album
     for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
@@ -139,12 +139,12 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
             destinationDirectory = os.path.join(destinationRoot, albumName)
             checkPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
-                print "("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+checkPath
+                print("("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+checkPath)
             make_sure_path_exists(destinationDirectory)
             if not os.path.isfile(checkPath):
                 copied += 1
                 if args.verbose:
-                    print "Copying"
+                    print("Copying")
                 if not args.dryrun:
                     try:
                         if args.links:
@@ -155,18 +155,18 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                             shutil.copy(sourceImage, destinationDirectory)
                     except IOError:
                         failed += 1
-                        print "Failed to copy: %s. Skipping this element." % sourceImage
+                        print("Failed to copy: %s. Skipping this element." % sourceImage)
             else:
                 if args.verbose:
-                    print "File already exists"
+                    print("File already exists")
                     if args.compare:
                         if args.verbose:
-                            print "Comparing files"
+                            print("Comparing files")
                         if not filecmp.cmp(sourceImage, checkPath):
                             copied += 1
                             if not args.dryrun:
                                 if args.verbose:
-                                    print "Copying"
+                                    print("Copying")
                                 try:
                                     if args.links:
                                         os.symlink(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
@@ -176,8 +176,8 @@ for row in connection1.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAl
                                         shutil.copy(sourceImage, destinationDirectory)
                                 except IOError:
                                     failed += 1
-                                    print "Failed to copy: %s. Skipping this element." % sourceImage
+                                    print("Failed to copy: %s. Skipping this element." % sourceImage)
 
-print "\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)+"\tfailed:\t"+str(failed)
+print("\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)+"\tfailed:\t"+str(failed))
 
 clean_up()
