@@ -158,12 +158,18 @@ for row in connectionLibrary.execute(album_query):
             # copy edited image to destination
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
-                    connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?",
-                                             [adjustmentUUID])
-                    uuid, fileName = connectionEdited.fetchone()
-                    p1 = str(ord(uuid[0]))
-                    p2 = str(ord(uuid[1]))
-                    sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
+                    try:
+                        connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource "
+                                                 "WHERE resourceTag=?", [adjustmentUUID])
+                        uuid, fileName = connectionEdited.fetchone()
+                        p1 = str(ord(uuid[0]))
+                        p2 = str(ord(uuid[1]))
+                        sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
+                    except:
+                        print("Fail to get edited version of source image, reverting to master version ({0})"
+                              .format(adjustmentUUID))
+                        print("Offending file is {0}, {1} with destination {2}".format(imagePath, fileName, albumName))
+                        # sourceImage remains the same
             destinationPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
                 print("\t(" + str(progress) + "/" + str(images) + ") From:\t" + sourceImage
