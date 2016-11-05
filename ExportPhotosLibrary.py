@@ -62,6 +62,7 @@ parser.add_argument('-d', '--destination', default="/Volumes/photo", help='desti
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
 parser.add_argument('-m', '--masters', default=False, help='export masters instead of edited', action="store_true")
+parser.add_argument('-a', '--album', default=None, help='export only a single album (debug)')
 group1 = parser.add_mutually_exclusive_group()
 group1.add_argument('-l', '--links', default=False, help='use symlinks', action="store_true")
 group1.add_argument('-i', '--hardlinks', default=False, help='use hardlinks', action="store_true")
@@ -102,7 +103,13 @@ connectionEdited = proxies_db.cursor()
 images = 0
 
 # count all images
-for row in connectionLibrary.execute("select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3"):
+all_images_album_query = "select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3" \
+                         " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import')"
+if args.album is not None:
+    if args.verbose:
+        print("Processing album '{0}' only".format(args.album))
+        all_images_album_query += " and RKAlbum.name = '" + args.album + "'"
+for row in connectionLibrary.execute(all_images_album_query):
     albumNumber = (row[0],)
     connection2 = main_db.cursor()
     # get all photos in that album
@@ -119,8 +126,11 @@ failed = 0
 
 # find all "normal" albums
 connectionLibrary = main_db.cursor()
-for row in connectionLibrary.execute(
-        "select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
+album_query = "select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3" \
+              " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import') "
+if args.album is not None:
+    album_query += " and RKAlbum.name = '" + args.album + "'"
+for row in connectionLibrary.execute(album_query):
     albumNumber = (row[0],)
     albumName = row[1]
     destinationDirectory = os.path.join(destinationRoot, albumName)
