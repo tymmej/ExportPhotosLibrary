@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-#Based on:
+# Based on:
 #   https://github.com/samrushing/face_extractor
 #   https://github.com/bdwilson/iPhotoDump
 #   https://github.com/namezys/mac_photos
@@ -21,21 +21,23 @@ if sys.version[0] == '2':
     sys.setdefaultencoding('utf8')
 
 
-#shows progress bar
+# shows progress bar
 def bar(progress):
-    i = int(progress/5)
+    i = int(progress / 5)
     sys.stdout.write('\r')
-    sys.stdout.write("[%-20s] %d%%" % ('='*i, progress))
+    sys.stdout.write("[%-20s] %d%%" % ('=' * i, progress))
     sys.stdout.write('\r')
     sys.stdout.flush()
 
-#closes database and removes temp files
+
+# closes database and removes temp files
 def clean_up():
     main_db.close()
     shutil.rmtree(tempDir)
     print("\nDeleted temporary files")
 
-#create dir if not exists
+
+# create dir if not exists
 def make_sure_path_exists(path):
     try:
         os.makedirs(path)
@@ -43,16 +45,19 @@ def make_sure_path_exists(path):
         if exception.errno != errno.EEXIST:
             raise
 
+
 def signal_handler(signal, frame):
-        clean_up()
-        sys.exit(0)
+    clean_up()
+    sys.exit(0)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 
-
-#options
-parser = argparse.ArgumentParser(description='Exports Photos Library to directory', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photoslibrary", help='source, path to Photos.app library')
+# options
+parser = argparse.ArgumentParser(description='Exports Photos Library to directory',
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('-s', '--source', default="/Volumes/Transcend/Zdjęcia.photoslibrary",
+                    help='source, path to Photos.app library')
 parser.add_argument('-d', '--destination', default="/Volumes/photo", help='destination, path to external directory')
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
@@ -77,72 +82,82 @@ if not os.path.isdir(destinationRoot):
     sys.stderr.write('destination is not a directory?\n')
     sys.exit(-1)
 
-#copy database, we don't want to mess with original
+# copy database, we don't want to mess with original
 tempDir = tempfile.mkdtemp()
 databasePathLibrary = os.path.join(tempDir, 'Library.apdb')
 databasePathEdited = os.path.join(tempDir, 'ImageProxies.apdb')
 shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePathLibrary)
 shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePathEdited)
 
-#connect to database
+# connect to database
 main_db = sqlite3.connect(databasePathLibrary)
 main_db.execute("attach database ? as L", (databasePathLibrary,))
 proxies_db = sqlite3.connect(databasePathEdited)
 proxies_db.execute("attach database ? as L", (databasePathEdited,))
 
-#cannot use one connection to do everything
+# cannot use one connection to do everything
 connectionLibrary = main_db.cursor()
 connectionEdited = proxies_db.cursor()
 
 images = 0
 
-#count all images
+# count all images
 for row in connectionLibrary.execute("select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3"):
     albumNumber = (row[0],)
     connection2 = main_db.cursor()
-    #get all photos in that album
-    for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
+    # get all photos in that album
+    for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion "
+                                    "where RKAlbumVersion.albumId = ?", albumNumber):
         versionId = (row2[0],)
         images += 1
 
-print("Found "+str(images)+" images")
+print("Found " + str(images) + " images")
 
 copied = 0
 progress = 0
 failed = 0
 
-#find all "normal" albums
+# find all "normal" albums
 connectionLibrary = main_db.cursor()
-for row in connectionLibrary.execute("select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
+for row in connectionLibrary.execute(
+        "select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3"):
     albumNumber = (row[0],)
     albumName = row[1]
     destinationDirectory = os.path.join(destinationRoot, albumName)
     make_sure_path_exists(destinationDirectory)
-    if args.verbose: print(albumName+":")
+    if args.verbose:
+        print(albumName + ":")
     connection2 = main_db.cursor()
-    #get all photos in that album
-    for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
+    # get all photos in that album
+    for row2 in connection2.execute(
+            "select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
         versionId = (row2[0],)
         connection3 = main_db.cursor()
-        #get image path/name
-        for row in connection3.execute("select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
+        # get image path/name
+        for row in connection3.execute(
+                "select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on "
+                "V.masterUuid=M.uuid where V.modelId = ?",
+                versionId):
             progress += 1
-            if args.progress: bar(progress*100/images)
+            if args.progress:
+                bar(progress * 100 / images)
             imagePath = row[0]
             fileName = row[1]
             adjustmentUUID = row[2]
             sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
-            #copy edited image to destination
+            # copy edited image to destination
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
-                    connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?", [adjustmentUUID])
+                    connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource WHERE resourceTag=?",
+                                             [adjustmentUUID])
                     uuid, fileName = connectionEdited.fetchone()
                     p1 = str(ord(uuid[0]))
                     p2 = str(ord(uuid[1]))
                     sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
             destinationPath = os.path.join(destinationDirectory, fileName)
             if args.verbose:
-                print("\t("+str(progress)+"/"+str(images)+") From:\t"+sourceImage+"\tto:\t"+destinationPath)
+                print("\t(" + str(progress) + "/" + str(images) + ") From:\t" + sourceImage
+                      + "\tto:\t" + destinationPath)
             if not os.path.isfile(destinationPath):
                 copied += 1
                 if args.verbose:
@@ -171,15 +186,17 @@ for row in connectionLibrary.execute("select RKAlbum.modelid, RKAlbum.name from 
                                     print("Copying")
                                 try:
                                     if args.links:
-                                        os.symlink(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                                        os.symlink(sourceImage,
+                                                   os.path.join(destinationDirectory, os.path.basename(sourceImage)))
                                     elif args.hardlinks:
-                                        os.link(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
+                                        os.link(sourceImage,
+                                                os.path.join(destinationDirectory, os.path.basename(sourceImage)))
                                     else:
                                         shutil.copy(sourceImage, destinationDirectory)
                                 except IOError:
                                     failed += 1
                                     print("Failed to copy: %s. Skipping this element." % sourceImage)
 
-print("\nImages:\t"+str(images)+"\tcopied:\t"+str(copied)+"\tfailed:\t"+str(failed))
+print("\nImages:\t" + str(images) + "\tcopied:\t" + str(copied) + "\tfailed:\t" + str(failed))
 
 clean_up()
