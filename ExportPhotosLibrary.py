@@ -46,6 +46,16 @@ def make_sure_path_exists(path):
             raise
 
 
+# copy as user wants
+def effective_copy(links, hardlinks, src_img, dest_dir):
+    if links:
+        os.symlink(src_img, os.path.join(dest_dir, os.path.basename(src_img)))
+    elif hardlinks:
+        os.link(src_img, os.path.join(dest_dir, os.path.basename(src_img)))
+    else:
+        shutil.copy(src_img, destinationDirectory)
+
+
 def signal_handler(signal, frame):
     clean_up()
     sys.exit(0)
@@ -180,12 +190,7 @@ for row in connectionLibrary.execute(album_query):
                     print("Copying")
                 if not args.dryrun:
                     try:
-                        if args.links:
-                            os.symlink(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
-                        elif args.hardlinks:
-                            os.link(sourceImage, os.path.join(destinationDirectory, os.path.basename(sourceImage)))
-                        else:
-                            shutil.copy(sourceImage, destinationDirectory)
+                        effective_copy(args.links, args.hardlinks, sourceImage, destinationDirectory)
                     except IOError:
                         failed += 1
                         print("Failed to copy: %s. Skipping this element." % sourceImage)
@@ -201,20 +206,13 @@ for row in connectionLibrary.execute(album_query):
                                 if args.verbose:
                                     print("Copying")
                                 try:
-                                    if args.links:
-                                        os.symlink(sourceImage,
-                                                   os.path.join(destinationDirectory, os.path.basename(sourceImage)))
-                                    elif args.hardlinks:
-                                        os.link(sourceImage,
-                                                os.path.join(destinationDirectory, os.path.basename(sourceImage)))
-                                    else:
-                                        shutil.copy(sourceImage, destinationDirectory)
+                                    effective_copy(args.links, args.hardlinks, sourceImage, destinationDirectory)
                                 except IOError:
                                     failed += 1
                                     print("Failed to copy: %s. Skipping this element." % sourceImage)
                         else:
                             if args.verbose:
-                                print("{0} and {1} are identical files. Ignoring.".format(sourceImage, destinationPath))
+                                print("{0} and {1} are identical. Ignoring.".format(sourceImage, destinationPath))
 
 print("\nImages:\t" + str(images) + "\tcopied:\t" + str(copied) + "\tfailed:\t" + str(failed))
 
