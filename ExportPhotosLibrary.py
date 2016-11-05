@@ -119,13 +119,13 @@ if args.album is not None:
     if args.verbose:
         print("Processing album '{0}' only".format(args.album))
         all_images_album_query += " and RKAlbum.name = '" + args.album + "'"
-for row in connectionLibrary.execute(all_images_album_query):
-    albumNumber = (row[0],)
+for row_album_count in connectionLibrary.execute(all_images_album_query):
+    albumNumber = (row_album_count[0],)
     connection2 = main_db.cursor()
     # get all photos in that album
-    for row2 in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion "
-                                    "where RKAlbumVersion.albumId = ?", albumNumber):
-        versionId = (row2[0],)
+    for row_album_version_count in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion "
+                                                       "where RKAlbumVersion.albumId = ?", albumNumber):
+        versionId = (row_album_version_count[0],)
         images += 1
 
 print("Found " + str(images) + " images")
@@ -140,30 +140,30 @@ album_query = "select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum
               " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import') "
 if args.album is not None:
     album_query += " and RKAlbum.name = '" + args.album + "'"
-for row in connectionLibrary.execute(album_query):
-    albumNumber = (row[0],)
-    albumName = row[1]
+for row_album in connectionLibrary.execute(album_query):
+    albumNumber = (row_album[0],)
+    albumName = row_album[1]
     destinationDirectory = os.path.join(destinationRoot, albumName)
     make_sure_path_exists(destinationDirectory)
     if args.verbose:
         print(albumName + ":")
     connection2 = main_db.cursor()
     # get all photos in that album
-    for row2 in connection2.execute(
+    for row_album_version in connection2.execute(
             "select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
-        versionId = (row2[0],)
+        versionId = (row_album_version[0],)
         connection3 = main_db.cursor()
         # get image path/name
-        for row in connection3.execute(
+        for row_photo in connection3.execute(
                 "select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on "
                 "V.masterUuid=M.uuid where V.modelId = ?",
                 versionId):
             progress += 1
             if args.progress:
                 bar(progress * 100 / images)
-            imagePath = row[0]
-            fileName = row[1]
-            adjustmentUUID = row[2]
+            imagePath = row_photo[0]
+            fileName = row_photo[1]
+            adjustmentUUID = row_photo[2]
             sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
             # copy edited image to destination
             if not args.masters:
@@ -172,6 +172,7 @@ for row in connectionLibrary.execute(album_query):
                         connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource "
                                                  "WHERE resourceTag=?", [adjustmentUUID])
                         uuid, fileName = connectionEdited.fetchone()
+                        # This is the way to found file path on disk, but why? :-)
                         p1 = str(ord(uuid[0]))
                         p2 = str(ord(uuid[1]))
                         sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
