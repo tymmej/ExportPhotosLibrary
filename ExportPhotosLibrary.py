@@ -194,8 +194,8 @@ for row in connectionLibrary.execute(album_query):
                     print("File already exists")
                     if args.compare:
                         if args.verbose:
-                            print("Comparing files")
-                        if not filecmp.cmp(sourceImage, checkPath):
+                            print("Comparing files...")
+                        if not filecmp.cmp(sourceImage, destinationPath):
                             copied += 1
                             if not args.dryrun:
                                 if args.verbose:
@@ -212,6 +212,9 @@ for row in connectionLibrary.execute(album_query):
                                 except IOError:
                                     failed += 1
                                     print("Failed to copy: %s. Skipping this element." % sourceImage)
+                        else:
+                            if args.verbose:
+                                print("{0} and {1} are identical files. Ignoring.".format(sourceImage, destinationPath))
 
 print("\nImages:\t" + str(images) + "\tcopied:\t" + str(copied) + "\tfailed:\t" + str(failed))
 
