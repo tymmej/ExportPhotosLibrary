@@ -16,6 +16,8 @@ import argparse
 import signal
 import filecmp
 
+from os.path import basename
+
 if sys.version[0] == '2':
     reload(sys)
     sys.setdefaultencoding('utf8')
@@ -116,9 +118,9 @@ images = 0
 all_images_album_query = "select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3" \
                          " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import')"
 if args.album is not None:
+    all_images_album_query += " and RKAlbum.name = '" + args.album + "'"
     if args.verbose:
         print("Processing album '{0}' only".format(args.album))
-        all_images_album_query += " and RKAlbum.name = '" + args.album + "'"
 for row_album_count in connectionLibrary.execute(all_images_album_query):
     albumNumber = (row_album_count[0],)
     connection2 = main_db.cursor()
@@ -155,16 +157,20 @@ for row_album in connectionLibrary.execute(album_query):
         connection3 = main_db.cursor()
         # get image path/name
         for row_photo in connection3.execute(
-                "select M.imagePath, V.fileName, V.adjustmentUUID from L.RKVersion as V inner join L.RKMaster as M on "
-                "V.masterUuid=M.uuid where V.modelId = ?",
-                versionId):
+                "select M.imagePath, V.fileName, V.adjustmentUUID, V.specialType from L.RKVersion as V inner join "
+                "L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
             progress += 1
             if args.progress:
                 bar(progress * 100 / images)
             imagePath = row_photo[0]
             fileName = row_photo[1]
             adjustmentUUID = row_photo[2]
-            sourceImage = os.path.join(libraryRoot, "Masters", imagePath)
+            specialType = row_photo[3]  # looks like a live photo mark (values 5 - normal or 8 - hdr)
+            # To handle live photos, source image now is a vector with 1 or 2 values
+            # 0 will always be the JPG file
+            # 1 will be the MOV file, in case of live photo
+            sourceImage = []
+            sourceImage.append(os.path.join(libraryRoot, "Masters", imagePath))  # [0]
             # copy edited image to destination
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
@@ -175,45 +181,72 @@ for row_album in connectionLibrary.execute(album_query):
                         # This is the way to found file path on disk, but why? :-)
                         p1 = str(ord(uuid[0]))
                         p2 = str(ord(uuid[1]))
-                        sourceImage = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
+                        sourceImage[0] = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
                     except:
                         print("Fail to get edited version of source image, reverting to master version ({0})"
                               .format(adjustmentUUID))
                         print("Offending file is {0}, {1} with destination {2}".format(imagePath, fileName, albumName))
-                        # sourceImage remains the same
-            destinationPath = os.path.join(destinationDirectory, fileName)
-            if args.verbose:
-                print("\t(" + str(progress) + "/" + str(images) + ") From:\t" + sourceImage
-                      + "\tto:\t" + destinationPath)
-            if not os.path.isfile(destinationPath):
-                copied += 1
-                if args.verbose:
-                    print("Copying")
-                if not args.dryrun:
+                        # sourceImage[0] remains the same
+                # Handle live photos - start
+                if specialType == 5 or specialType == 8:
                     try:
-                        effective_copy(args.links, args.hardlinks, sourceImage, destinationDirectory)
-                    except IOError:
-                        failed += 1
-                        print("Failed to copy: %s. Skipping this element." % sourceImage)
-            else:
-                if args.verbose:
-                    print("File already exists")
-                    if args.compare:
                         if args.verbose:
-                            print("Comparing files...")
-                        if not filecmp.cmp(sourceImage, destinationPath):
-                            copied += 1
-                            if not args.dryrun:
-                                if args.verbose:
-                                    print("Copying")
-                                try:
-                                    effective_copy(args.links, args.hardlinks, sourceImage, destinationDirectory)
-                                except IOError:
-                                    failed += 1
-                                    print("Failed to copy: %s. Skipping this element." % sourceImage)
-                        else:
+                            print(fileName + " seems to be a live photo, with specialType = " + str(specialType))
+                        baseFileName = os.path.splitext(basename(fileName))[0]
+                        # The heuristic is search for same base file name with MOV extension and resourceTag null
+                        # Sometimes, video file is not found. Where to search for the exact file?
+                        connectionEdited.execute("SELECT resourceUuid, fileName FROM RKModelResource WHERE "
+                                                 "resourceTag is null and filename = '" + baseFileName + ".MOV'")
+                        uuidMovFile, movFileName = connectionEdited.fetchone()
+                        if args.verbose:
+                            print(movFileName + " found on model resource...")
+                        # This is the way to found file path on disk, but why? :-)
+                        p1Mov = str(ord(uuidMovFile[0]))
+                        p2Mov = str(ord(uuidMovFile[1]))
+                        sourceMov = os.path.join(libraryRoot, "resources/modelresources", p1Mov, p2Mov, uuidMovFile,
+                                                 movFileName)
+                        sourceImage.append(sourceMov)  # [1]
+                    except:
+                        print("Fail to get video from live photo ({0})".format(adjustmentUUID))
+                        print("Offending file is {0}, {1} with destination {2}".format(imagePath, fileName, albumName))
+                        # sourceImage[1] will not exist in array
+                # Handle live photos - end
+            #
+            for src_img_copy in sourceImage:
+                dest_file_name = basename(src_img_copy)
+                destinationPath = os.path.join(destinationDirectory, dest_file_name)
+                if args.verbose:
+                    print("\t(" + str(progress) + "/" + str(images) + ") From:\t" + src_img_copy
+                          + "\tto:\t" + destinationPath)
+                if not os.path.isfile(destinationPath):
+                    copied += 1
+                    if args.verbose:
+                        print("Copying")
+                    if not args.dryrun:
+                        try:
+                            effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory)
+                        except IOError:
+                            failed += 1
+                            print("Failed to copy: %s. Skipping this element." % src_img_copy)
+                else:
+                    if args.verbose:
+                        print("File already exists")
+                        if args.compare:
                             if args.verbose:
-                                print("{0} and {1} are identical. Ignoring.".format(sourceImage, destinationPath))
+                                print("Comparing files...")
+                            if not filecmp.cmp(src_img_copy, destinationPath):
+                                copied += 1
+                                if not args.dryrun:
+                                    if args.verbose:
+                                        print("Copying")
+                                    try:
+                                        effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory)
+                                    except IOError:
+                                        failed += 1
+                                        print("Failed to copy: %s. Skipping this element." % src_img_copy)
+                            else:
+                                if args.verbose:
+                                    print("{0} and {1} are identical. Ignoring.".format(src_img_copy, destinationPath))
 
 print("\nImages:\t" + str(images) + "\tcopied:\t" + str(copied) + "\tfailed:\t" + str(failed))
 
