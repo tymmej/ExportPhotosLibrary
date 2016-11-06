@@ -124,9 +124,13 @@ if args.album is not None:
 for row_album_count in connectionLibrary.execute(all_images_album_query):
     albumNumber = (row_album_count[0],)
     connection2 = main_db.cursor()
-    # get all photos in that album
-    for row_album_version_count in connection2.execute("select RKAlbumVersion.VersionId from L.RKAlbumVersion "
-                                                       "where RKAlbumVersion.albumId = ?", albumNumber):
+    # get all valid photos in that album
+    valid_versions_query = "SELECT AV.VersionId " \
+                           "FROM RKAlbumVersion as AV inner join RKVersion as V on AV.versionId = V.modelId " \
+                           "                          inner join RKMaster as M on V.masterUuid=M.uuid " \
+                           "WHERE (M.isMissing = 0) and (M.isInTrash = 0) and (V.isInTrash = 0) " \
+                           "  and (V.showInLibrary = 1) and AV.albumId = ?"
+    for row_album_version_count in connection2.execute(valid_versions_query, albumNumber):
         versionId = (row_album_version_count[0],)
         images += 1
 
@@ -157,8 +161,9 @@ for row_album in connectionLibrary.execute(album_query):
         connection3 = main_db.cursor()
         # get image path/name
         for row_photo in connection3.execute(
-                "select M.imagePath, V.fileName, V.adjustmentUUID, V.specialType from L.RKVersion as V inner join "
-                "L.RKMaster as M on V.masterUuid=M.uuid where V.modelId = ?", versionId):
+                "SELECT M.imagePath, V.fileName, V.adjustmentUUID, V.specialType FROM L.RKVersion as V inner join "
+                "L.RKMaster as M on V.masterUuid=M.uuid WHERE (M.isMissing = 0) and (M.isInTrash = 0) and "
+                "(V.isInTrash = 0) and (V.showInLibrary = 1) and (V.modelId = ?)", versionId):
             progress += 1
             if args.progress:
                 bar(progress * 100 / images)
