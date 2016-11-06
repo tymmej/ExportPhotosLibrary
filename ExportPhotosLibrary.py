@@ -74,7 +74,7 @@ parser.add_argument('-d', '--destination', default="/Volumes/photo", help='desti
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
 parser.add_argument('-m', '--masters', default=False, help='export masters instead of edited', action="store_true")
-parser.add_argument('-a', '--album', default=None, help='export only a single album (debug)')
+parser.add_argument('-a', '--album', default=None, help='expor album starting with... (for debug)')
 group1 = parser.add_mutually_exclusive_group()
 group1.add_argument('-l', '--links', default=False, help='use symlinks', action="store_true")
 group1.add_argument('-i', '--hardlinks', default=False, help='use hardlinks', action="store_true")
@@ -118,7 +118,7 @@ images = 0
 all_images_album_query = "select RKAlbum.modelid from L.RKAlbum where RKAlbum.albumSubclass=3" \
                          " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import')"
 if args.album is not None:
-    all_images_album_query += " and RKAlbum.name = '" + args.album + "'"
+    all_images_album_query += " and RKAlbum.name like '" + args.album + "%'"
     if args.verbose:
         print("Processing album '{0}' only".format(args.album))
 for row_album_count in connectionLibrary.execute(all_images_album_query):
@@ -141,7 +141,7 @@ connectionLibrary = main_db.cursor()
 album_query = "select RKAlbum.modelid, RKAlbum.name from L.RKAlbum where RKAlbum.albumSubclass=3" \
               " and (RKAlbum.name <> 'printAlbum' and RKAlbum.name <> 'Last Import') "
 if args.album is not None:
-    album_query += " and RKAlbum.name = '" + args.album + "'"
+    album_query += " and RKAlbum.name like '" + args.album + "%'"
 for row_album in connectionLibrary.execute(album_query):
     albumNumber = (row_album[0],)
     albumName = row_album[1]
