@@ -15,6 +15,7 @@ import tempfile
 import argparse
 import signal
 import filecmp
+import fnmatch
 
 from os.path import basename
 
@@ -35,7 +36,6 @@ def bar(progress):
 # closes database and removes temp files
 def clean_up():
     main_db.close()
-    proxies_db.close()
     shutil.rmtree(tempDir)
     print("\nDeleted temporary files")
 
@@ -50,13 +50,40 @@ def make_sure_path_exists(path):
 
 
 # copy as user wants
-def effective_copy(links, hardlinks, src_img, dest_dir):
+def effective_copy(links, hardlinks, src_img, dest_dir, dest_name=None):
+    if dest_name is None:
+        dest_name = os.path.basename(src_img)
     if links:
-        os.symlink(src_img, os.path.join(dest_dir, os.path.basename(src_img)))
+        os.symlink(src_img, os.path.join(dest_dir, dest_name))
     elif hardlinks:
-        os.link(src_img, os.path.join(dest_dir, os.path.basename(src_img)))
+        os.link(src_img, os.path.join(dest_dir, dest_name))
     else:
-        shutil.copy(src_img, destinationDirectory)
+        shutil.copy(src_img, os.path.join(destinationDirectory, dest_name))
+
+
+# find files in filesystem
+def find(pattern, path):
+    result = []
+    for root, dirs, files in os.walk(path):
+        for name in files:
+            if fnmatch.fnmatch(name, pattern):
+                result.append(os.path.join(root, name))
+    return result
+
+
+# logic to find files (edited and live photos) with modelId. It's heuristic based and must work in almost cases.
+def get_resource_location(param):
+    model_id_hex = hex(param)
+    res_file_code = model_id_hex[2:]  # file code has not leading zeros, it's like a number
+    # folder name has another logic...
+    model_id_hex = model_id_hex[2:]  # remove "0x"
+    # if lenght of hex code is not 4, compose with leading zeros
+    if len(model_id_hex) < 4:
+        zeros_needed = 4 - len(model_id_hex)
+        zeros = "0" * zeros_needed
+        model_id_hex = zeros + model_id_hex
+    res_folder_name = model_id_hex[0:2]  # folder name mark
+    return res_file_code, res_folder_name
 
 
 def signal_handler(signal, frame):
@@ -100,33 +127,14 @@ if not os.path.isdir(destinationRoot):
 tempDir = tempfile.mkdtemp()
 
 # Handle photos 2.0 (Macos 10.12) new path
-if not os.path.isfile(os.path.join(libraryRoot, 'Database/Library.apdb')):
-    # Mac OS 10.12
-    databasePathLibrary = os.path.join(tempDir, 'photos.db')
-    shutil.copyfile(os.path.join(libraryRoot, 'Database/photos.db'), databasePathLibrary)
-    # connect to database
-    # In fact 10.12 has only one database, but I will create two connections to keep the original logic
-    main_db = sqlite3.connect(databasePathLibrary)
-    main_db.execute("attach database ? as L", (databasePathLibrary,))
-    proxies_db = sqlite3.connect(databasePathLibrary)
-    proxies_db.execute("attach database ? as L", (databasePathLibrary,))
-    #
-else:
-    # Mac OS 10.11
-    databasePathLibrary = os.path.join(tempDir, 'Library.apdb')
-    databasePathEdited = os.path.join(tempDir, 'ImageProxies.apdb')
-    shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePathLibrary)
-    shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePathEdited)
-    # connect to database
-    main_db = sqlite3.connect(databasePathLibrary)
-    main_db.execute("attach database ? as L", (databasePathLibrary,))
-    proxies_db = sqlite3.connect(databasePathEdited)
-    proxies_db.execute("attach database ? as L", (databasePathEdited,))
-#
+databasePathLibrary = os.path.join(tempDir, 'photos.db')
+shutil.copyfile(os.path.join(libraryRoot, 'Database/photos.db'), databasePathLibrary)
+# connect to database - 10.12 has only one database file
+main_db = sqlite3.connect(databasePathLibrary)
+main_db.execute("attach database ? as L", (databasePathLibrary,))
 
-# cannot use one connection to do everything
+# can use one connection to do everything
 connectionLibrary = main_db.cursor()
-connectionEdited = proxies_db.cursor()
 
 images = 0
 
@@ -169,16 +177,16 @@ for row_album in connectionLibrary.execute(album_query):
     make_sure_path_exists(destinationDirectory)
     if args.verbose:
         print(albumName + ":")
-    connection2 = main_db.cursor()
+    connection_album = main_db.cursor()
     # get all photos in that album
-    for row_album_version in connection2.execute(
+    for row_album_version in connection_album.execute(
             "select RKAlbumVersion.VersionId from L.RKAlbumVersion where RKAlbumVersion.albumId = ?", albumNumber):
         versionId = (row_album_version[0],)
-        connection3 = main_db.cursor()
+        connection_version = main_db.cursor()
         # get image path/name
-        for row_photo in connection3.execute(
-                "SELECT M.imagePath, V.fileName, V.adjustmentUUID, V.specialType FROM L.RKVersion as V inner join "
-                "L.RKMaster as M on V.masterUuid=M.uuid WHERE (M.isMissing = 0) and (M.isInTrash = 0) and "
+        for row_photo in connection_version.execute(
+                "SELECT M.imagePath, V.fileName, V.adjustmentUUID, V.specialType, M.modelId FROM L.RKVersion as V "
+                "inner join L.RKMaster as M on V.masterUuid=M.uuid WHERE (M.isMissing = 0) and (M.isInTrash = 0) and "
                 "(V.isInTrash = 0) and (V.showInLibrary = 1) and (V.modelId = ?)", versionId):
             progress += 1
             if args.progress:
@@ -187,22 +195,25 @@ for row_album in connectionLibrary.execute(album_query):
             fileName = row_photo[1]
             adjustmentUUID = row_photo[2]
             specialType = row_photo[3]  # looks like a live photo mark (values 5 - normal or 8 - hdr)
+            master_model_id = row_photo[4]
             # To handle live photos, source image now is a vector with 1 or 2 values
             # 0 will always be the JPG file
             # 1 will be the MOV file, in case of live photo
+            # Every position of the vector will be a tuple with "original path" and "destination file name"
             sourceImage = []
-            sourceImage.append(os.path.join(libraryRoot, "Masters", imagePath))  # [0]
+            sourceImage.append((os.path.join(libraryRoot, "Masters", imagePath), fileName))  # [0]
             # copy edited image to destination
             if not args.masters:
                 if adjustmentUUID != "UNADJUSTEDNONRAW" and adjustmentUUID != "UNADJUSTED":
                     try:
-                        connectionEdited.execute("SELECT resourceUuid, filename FROM RKModelResource "
-                                                 "WHERE resourceTag=?", [adjustmentUUID])
-                        uuid, fileName = connectionEdited.fetchone()
-                        # This is the way to found file path on disk, but why? :-)
-                        p1 = str(ord(uuid[0]))
-                        p2 = str(ord(uuid[1]))
-                        sourceImage[0] = os.path.join(libraryRoot, "resources/modelresources", p1, p2, uuid, fileName)
+                        connection_edited = main_db.cursor()
+                        connection_edited.execute("SELECT modelId FROM RKModelResource WHERE resourceTag = '{0}' "
+                                                  "and UTI = 'public.jpeg'".format(adjustmentUUID))
+                        file_code, folder_name = get_resource_location(connection_edited.fetchone()[0])
+                        edited_photos_start_path = os.path.join(libraryRoot, "resources", "media", "version",
+                                                                folder_name)
+                        edited_photos = find("*_{0}.jpeg".format(file_code), edited_photos_start_path)
+                        sourceImage[0] = (edited_photos[0], fileName)  # [0]
                     except:
                         print("Fail to get edited version of source image, reverting to master version ({0})"
                               .format(adjustmentUUID))
@@ -213,28 +224,23 @@ for row_album in connectionLibrary.execute(album_query):
                     try:
                         if args.verbose:
                             print(fileName + " seems to be a live photo, with specialType = " + str(specialType))
-                        baseFileName = os.path.splitext(basename(fileName))[0]
-                        # The heuristic is search for same base file name with MOV extension and resourceTag null
-                        # Sometimes, video file is not found. Where to search for the exact file?
-                        connectionEdited.execute("SELECT resourceUuid, fileName FROM RKModelResource WHERE "
-                                                 "resourceTag is null and filename = '" + baseFileName + ".MOV'")
-                        uuidMovFile, movFileName = connectionEdited.fetchone()
-                        if args.verbose:
-                            print(movFileName + " found on model resource...")
-                        # This is the way to found file path on disk, but why? :-)
-                        p1Mov = str(ord(uuidMovFile[0]))
-                        p2Mov = str(ord(uuidMovFile[1]))
-                        sourceMov = os.path.join(libraryRoot, "resources/modelresources", p1Mov, p2Mov, uuidMovFile,
-                                                 movFileName)
-                        sourceImage.append(sourceMov)  # [1]
+                        connection_live = main_db.cursor()
+                        connection_live.execute("SELECT modelId FROM RKModelResource WHERE attachedModelId = {0} "
+                                                  "and UTI = 'com.apple.quicktime-movie'".format(int(master_model_id)))
+                        file_code, folder_name = get_resource_location(connection_live.fetchone()[0])
+                        live_photos_start_path = os.path.join(libraryRoot, "resources", "media", "master", folder_name)
+                        live_photos_movies = find("jpegvideocomplement_{0}.mov".format(file_code),
+                                                  live_photos_start_path)
+                        sourceImage.append((live_photos_movies[0], fileName+".MOV"))  # [1]
                     except:
-                        print("Fail to get video from live photo ({0})".format(adjustmentUUID))
+                        print("Fail to get video from live photo ({0})".format(fileName))
                         print("Offending file is {0}, {1} with destination {2}".format(imagePath, fileName, albumName))
                         # sourceImage[1] will not exist in array
                 # Handle live photos - end
             #
-            for src_img_copy in sourceImage:
-                dest_file_name = basename(src_img_copy)
+            for src_img_copy_vector in sourceImage:
+                src_img_copy = src_img_copy_vector[0]
+                dest_file_name = src_img_copy_vector[1]
                 destinationPath = os.path.join(destinationDirectory, dest_file_name)
                 if args.verbose:
                     print("\t(" + str(progress) + "/" + str(images) + ") From:\t" + src_img_copy
@@ -245,7 +251,7 @@ for row_album in connectionLibrary.execute(album_query):
                         print("Copying")
                     if not args.dryrun:
                         try:
-                            effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory)
+                            effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory, dest_file_name)
                         except IOError:
                             failed += 1
                             print("Failed to copy: %s. Skipping this element." % src_img_copy)
@@ -261,7 +267,7 @@ for row_album in connectionLibrary.execute(album_query):
                                     if args.verbose:
                                         print("Copying")
                                     try:
-                                        effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory)
+                                        effective_copy(args.links, args.hardlinks, src_img_copy, destinationDirectory, dest_file_name)
                                     except IOError:
                                         failed += 1
                                         print("Failed to copy: %s. Skipping this element." % src_img_copy)
