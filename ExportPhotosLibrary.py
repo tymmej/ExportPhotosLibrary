@@ -35,6 +35,7 @@ def bar(progress):
 # closes database and removes temp files
 def clean_up():
     main_db.close()
+    proxies_db.close()
     shutil.rmtree(tempDir)
     print("\nDeleted temporary files")
 
@@ -74,7 +75,7 @@ parser.add_argument('-d', '--destination', default="/Volumes/photo", help='desti
 parser.add_argument('-c', '--compare', default=False, help='compare files', action="store_true")
 parser.add_argument('-n', '--dryrun', default=False, help='do not copy files', action="store_true")
 parser.add_argument('-m', '--masters', default=False, help='export masters instead of edited', action="store_true")
-parser.add_argument('-a', '--album', default=None, help='expor album starting with... (for debug)')
+parser.add_argument('-a', '--album', default=None, help='export album starting with... (for debug)')
 group1 = parser.add_mutually_exclusive_group()
 group1.add_argument('-l', '--links', default=False, help='use symlinks', action="store_true")
 group1.add_argument('-i', '--hardlinks', default=False, help='use hardlinks', action="store_true")
@@ -95,18 +96,33 @@ if not os.path.isdir(destinationRoot):
     sys.stderr.write('destination is not a directory?\n')
     sys.exit(-1)
 
-# copy database, we don't want to mess with original
+# copy databases, we don't want to mess with original
 tempDir = tempfile.mkdtemp()
-databasePathLibrary = os.path.join(tempDir, 'Library.apdb')
-databasePathEdited = os.path.join(tempDir, 'ImageProxies.apdb')
-shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePathLibrary)
-shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePathEdited)
 
-# connect to database
-main_db = sqlite3.connect(databasePathLibrary)
-main_db.execute("attach database ? as L", (databasePathLibrary,))
-proxies_db = sqlite3.connect(databasePathEdited)
-proxies_db.execute("attach database ? as L", (databasePathEdited,))
+# Handle photos 2.0 (Macos 10.12) new path
+if not os.path.isfile(os.path.join(libraryRoot, 'Database/Library.apdb')):
+    # Mac OS 10.12
+    databasePathLibrary = os.path.join(tempDir, 'photos.db')
+    shutil.copyfile(os.path.join(libraryRoot, 'Database/photos.db'), databasePathLibrary)
+    # connect to database
+    # In fact 10.12 has only one database, but I will create two connections to keep the original logic
+    main_db = sqlite3.connect(databasePathLibrary)
+    main_db.execute("attach database ? as L", (databasePathLibrary,))
+    proxies_db = sqlite3.connect(databasePathLibrary)
+    proxies_db.execute("attach database ? as L", (databasePathLibrary,))
+    #
+else:
+    # Mac OS 10.11
+    databasePathLibrary = os.path.join(tempDir, 'Library.apdb')
+    databasePathEdited = os.path.join(tempDir, 'ImageProxies.apdb')
+    shutil.copyfile(os.path.join(libraryRoot, 'Database/Library.apdb'), databasePathLibrary)
+    shutil.copyfile(os.path.join(libraryRoot, 'Database/ImageProxies.apdb'), databasePathEdited)
+    # connect to database
+    main_db = sqlite3.connect(databasePathLibrary)
+    main_db.execute("attach database ? as L", (databasePathLibrary,))
+    proxies_db = sqlite3.connect(databasePathEdited)
+    proxies_db.execute("attach database ? as L", (databasePathEdited,))
+#
 
 # cannot use one connection to do everything
 connectionLibrary = main_db.cursor()
